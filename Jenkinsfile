@@ -5,14 +5,18 @@ pipeline {
         // Docker Registry and Credentials configuration
         DOCKER_REGISTRY = 'docker.io'
         DOCKER_CREDENTIALS_ID = 'docker-hub-credentials'
-        
+
         // Image names (to be prepended with Docker Hub username on login)
         BACKEND_IMAGE = 'food-delivery-backend'
         FRONTEND_IMAGE = 'food-delivery-frontend'
         ADMIN_IMAGE = 'food-delivery-admin'
-        
+
         // Tag will default to the short git commit hash, or build number as fallback
         GIT_TAG = ''
+
+        // SonarQube configuration
+        SONAR_PROJECT_KEY = 'food-delivery'
+        SONAR_HOST_URL    = 'http://host.docker.internal:9000'
     }
 
     stages {
@@ -39,12 +43,12 @@ pipeline {
                 dir('backend') {
                     bat 'npm audit || exit 0'
                 }
-                
+
                 echo 'Auditing frontend dependencies...'
                 dir('frontend') {
                     bat 'npm audit || exit 0'
                 }
-                
+
                 echo 'Auditing admin dependencies...'
                 dir('admin') {
                     bat 'npm audit || exit 0'
@@ -54,15 +58,52 @@ pipeline {
 
         stage('Code Quality Check') {
             steps {
-                echo '=== Stage: Code Quality Check ==='
+                echo '=== Stage: Code Quality Check (ESLint) ==='
                 echo 'Running linting tool (ESLint) for frontend...'
                 dir('frontend') {
                     bat 'npm run lint || exit 0'
                 }
-                
+
                 echo 'Running linting tool (ESLint) for admin...'
                 dir('admin') {
                     bat 'npm run lint || exit 0'
+                }
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                echo '=== Stage: SonarQube Analysis ==='
+                script {
+                    // Use the SonarQube server configured in Jenkins (name: "SonarQube")
+                    withSonarQubeEnv('SonarQube') {
+                        def scannerHome = tool 'SonarScanner'
+                        bat """
+                            "${scannerHome}\\bin\\sonar-scanner.bat" ^
+                            -Dsonar.projectKey=${SONAR_PROJECT_KEY} ^
+                            -Dsonar.projectName="Food Delivery App" ^
+                            -Dsonar.sources=. ^
+                            -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/build/**,**/*.test.js ^
+                            -Dsonar.host.url=${SONAR_HOST_URL} ^
+                            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                echo '=== Stage: Quality Gate ==='
+                script {
+                    // Wait for SonarQube to process and return the quality gate result
+                    timeout(time: 5, unit: 'MINUTES') {
+                        def qg = waitForQualityGate()
+                        if (qg.status != 'OK') {
+                            error "❌ Pipeline aborted: SonarQube Quality Gate FAILED (status: ${qg.status}). Fix the code quality issues before building Docker images."
+                        }
+                        echo "✅ Quality Gate PASSED (status: ${qg.status}). Proceeding to Docker build."
+                    }
                 }
             }
         }
@@ -73,10 +114,10 @@ pipeline {
                 script {
                     echo "Building Docker Image: ${BACKEND_IMAGE}:${GIT_TAG}..."
                     bat "docker build -t ${BACKEND_IMAGE}:${GIT_TAG} -f Dockerfile ."
-                    
+
                     echo "Building Docker Image: ${FRONTEND_IMAGE}:${GIT_TAG}..."
                     bat "docker build -t ${FRONTEND_IMAGE}:${GIT_TAG} -f frontend/Dockerfile ./frontend"
-                    
+
                     echo "Building Docker Image: ${ADMIN_IMAGE}:${GIT_TAG}..."
                     bat "docker build -t ${ADMIN_IMAGE}:${GIT_TAG} -f admin/Dockerfile ./admin"
                 }
@@ -92,29 +133,30 @@ pipeline {
                         withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASSWORD')]) {
                             // Securely log into Docker Registry
                             bat 'echo %DOCKER_PASSWORD%| docker login -u %DOCKER_USER% --password-stdin'
-                            
+
                             // Tag and Push backend
                             bat "docker tag ${BACKEND_IMAGE}:${GIT_TAG} %DOCKER_USER%/${BACKEND_IMAGE}:${GIT_TAG}"
                             bat "docker tag ${BACKEND_IMAGE}:${GIT_TAG} %DOCKER_USER%/${BACKEND_IMAGE}:latest"
                             bat "docker push %DOCKER_USER%/${BACKEND_IMAGE}:${GIT_TAG}"
                             bat "docker push %DOCKER_USER%/${BACKEND_IMAGE}:latest"
-                            
+
                             // Tag and Push frontend
                             bat "docker tag ${FRONTEND_IMAGE}:${GIT_TAG} %DOCKER_USER%/${FRONTEND_IMAGE}:${GIT_TAG}"
                             bat "docker tag ${FRONTEND_IMAGE}:${GIT_TAG} %DOCKER_USER%/${FRONTEND_IMAGE}:latest"
                             bat "docker push %DOCKER_USER%/${FRONTEND_IMAGE}:${GIT_TAG}"
                             bat "docker push %DOCKER_USER%/${FRONTEND_IMAGE}:latest"
-                            
+
                             // Tag and Push admin
                             bat "docker tag ${ADMIN_IMAGE}:${GIT_TAG} %DOCKER_USER%/${ADMIN_IMAGE}:${GIT_TAG}"
                             bat "docker tag ${ADMIN_IMAGE}:${GIT_TAG} %DOCKER_USER%/${ADMIN_IMAGE}:latest"
                             bat "docker push %DOCKER_USER%/${ADMIN_IMAGE}:${GIT_TAG}"
                             bat "docker push %DOCKER_USER%/${ADMIN_IMAGE}:latest"
-                            
+
                             echo "All Docker images have been successfully pushed to Docker Hub."
                         }
                     } catch (Exception e) {
-                        echo "WARNING: Docker Hub push skipped or failed (likely due to dummy credentials in local test environment): ${e.getMessage()}"
+                        echo "WARNING: Docker Hub push failed: ${e.getMessage()}"
+                        error "Docker push stage failed. Please check credentials and connectivity."
                     }
                 }
             }
@@ -124,19 +166,15 @@ pipeline {
             steps {
                 echo '=== Stage: Deployment ==='
                 script {
-                    // Check if target environment variables are defined
                     def deployHost = env.DEPLOY_HOST
                     def deployUser = env.DEPLOY_USER
                     def deployKeyId = env.DEPLOY_SSH_KEY_ID ?: 'deploy-ssh-key'
-                    
+
                     if (deployHost && deployUser) {
                         echo "Starting remote SSH deployment to ${deployUser}@${deployHost}..."
                         try {
                             sshagent([deployKeyId]) {
-                                // 1. Copy Docker Compose configurations to the server
                                 bat "scp -o StrictHostKeyChecking=no docker-compose.yml ${deployUser}@${deployHost}:/home/${deployUser}/app/docker-compose.yml"
-                                
-                                // 2. SSH into target host, pull the latest images, and redeploy
                                 bat """ssh -o StrictHostKeyChecking=no ${deployUser}@${deployHost} "
                                     cd /home/${deployUser}/app
                                     set GIT_TAG=${GIT_TAG}
@@ -152,7 +190,6 @@ pipeline {
                     } else {
                         echo "DEPLOY_HOST and DEPLOY_USER are not configured in Jenkins environment variables."
                         echo "Performing deployment validation locally using docker-compose config..."
-                        // Validates the docker-compose syntax locally to check correctness
                         bat 'docker-compose config || exit 0'
                         echo "Deployment simulation finished successfully. Proceeding..."
                     }
@@ -160,17 +197,17 @@ pipeline {
             }
         }
     }
-    
+
     post {
         always {
             echo 'Pipeline has completed all execution stages.'
             cleanWs()
         }
         success {
-            echo 'Jenkins Build and Deploy succeeded!'
+            echo '✅ Jenkins Build and Deploy succeeded!'
         }
         failure {
-            echo 'Jenkins Build or Deploy failed. Please check the logs above.'
+            echo '❌ Jenkins Build or Deploy failed. Please check the logs above.'
         }
     }
 }
