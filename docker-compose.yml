@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+
+  mongo-db:
+    image: mongo:latest
+    container_name: mongo-db
+    ports:
+      - "27017:27017"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: backend-app
+    ports:
+      - "4000:4000"
+    environment:
+      - MONGO_URI=mongodb://mongo-db:27017/foodDB
+    depends_on:
+      - mongo-db
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend-app
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
