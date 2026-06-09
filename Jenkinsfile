@@ -17,6 +17,7 @@ pipeline {
         // SonarQube configuration
         SONAR_PROJECT_KEY = 'food-delivery'
         SONAR_HOST_URL    = 'http://host.docker.internal:9000'
+        JAVA_HOME         = 'C:\\Program Files\\Java\\jdk-21.0.11'
     }
 
     stages {
@@ -159,42 +160,6 @@ pipeline {
                         error "Docker push stage failed. Please check credentials and connectivity."
                     }
                 }
-            }
-        }
-
-        stage('Deployment') {
-            steps {
-                echo '=== Stage: Deployment ==='
-                script {
-                    def deployHost = env.DEPLOY_HOST
-                    def deployUser = env.DEPLOY_USER
-                    def deployKeyId = env.DEPLOY_SSH_KEY_ID ?: 'deploy-ssh-key'
-
-                    if (deployHost && deployUser) {
-                        echo "Starting remote SSH deployment to ${deployUser}@${deployHost}..."
-                        try {
-                            sshagent([deployKeyId]) {
-                                bat "scp -o StrictHostKeyChecking=no docker-compose.yml ${deployUser}@${deployHost}:/home/${deployUser}/app/docker-compose.yml"
-                                bat """ssh -o StrictHostKeyChecking=no ${deployUser}@${deployHost} "
-                                    cd /home/${deployUser}/app
-                                    set GIT_TAG=${GIT_TAG}
-                                    docker-compose pull
-                                    docker-compose up -d
-                                " """
-                                echo "Deployment on remote host completed successfully!"
-                            }
-                        } catch (Exception e) {
-                            echo "ERROR: Deployment via SSH failed: ${e.getMessage()}"
-                            error "Deployment step failed."
-                        }
-                    } else {
-                        echo "DEPLOY_HOST and DEPLOY_USER are not configured in Jenkins environment variables."
-                        echo "Performing deployment validation locally using docker-compose config..."
-                        bat 'docker-compose config || exit 0'
-                        echo "Deployment simulation finished successfully. Proceeding..."
-                    }
-                }
-            }
         }
     }
 
@@ -204,10 +169,10 @@ pipeline {
             cleanWs()
         }
         success {
-            echo '✅ Jenkins Build and Deploy succeeded!'
+            echo '✅ Jenkins Build succeeded!'
         }
         failure {
-            echo '❌ Jenkins Build or Deploy failed. Please check the logs above.'
+            echo '❌ Jenkins Build failed. Please check the logs above.'
         }
     }
 }
