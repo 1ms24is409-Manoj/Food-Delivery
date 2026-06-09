@@ -37,3 +37,7 @@ pnpm-debug.log*
 lerna-debug.log*
 logs/
 *.log
+
+# Helper scripts
+trigger_build.js
+

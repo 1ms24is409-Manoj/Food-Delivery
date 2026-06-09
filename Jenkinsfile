@@ -16,7 +16,7 @@ pipeline {
 
         // SonarQube configuration
         SONAR_PROJECT_KEY = 'food-delivery'
-        SONAR_HOST_URL    = 'http://host.docker.internal:9000'
+        SONAR_HOST_URL    = 'http://localhost:9000'
         JAVA_HOME         = 'C:\\Program Files\\Java\\jdk-21.0.11'
     }
 
@@ -160,6 +160,7 @@ pipeline {
                         error "Docker push stage failed. Please check credentials and connectivity."
                     }
                 }
+            }
         }
     }
 
