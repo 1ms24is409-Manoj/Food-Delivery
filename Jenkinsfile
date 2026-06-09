@@ -13,20 +13,16 @@ pipeline {
         
         // Tag will default to the short git commit hash, or build number as fallback
         GIT_TAG = ''
-
-        // Ensure Git Bash tools are in PATH on Windows agents
-        PATH = "C:\\Program Files\\Git\\bin;C:\\Program Files\\Git\\usr\\bin;${env.PATH}"
-        Path = "C:\\Program Files\\Git\\bin;C:\\Program Files\\Git\\usr\\bin;${env.Path}"
     }
 
     stages {
         stage('Git Version & Info') {
             steps {
                 echo '=== Stage: Git Version & Info ==='
-                sh 'git --version'
+                bat 'git --version'
                 script {
                     try {
-                        GIT_TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+                        GIT_TAG = bat(returnStdout: true, script: '@git rev-parse --short HEAD').trim()
                         echo "Target Docker image tag (Git commit hash): ${GIT_TAG}"
                     } catch (Exception e) {
                         GIT_TAG = "build-${BUILD_NUMBER}"
@@ -41,19 +37,17 @@ pipeline {
                 echo '=== Stage: Dependency Check ==='
                 echo 'Auditing backend dependencies...'
                 dir('backend') {
-                    // Running npm audit with "|| true" so security warnings do not crash the pipeline,
-                    // ensuring that the Jenkins build finishes successfully.
-                    sh 'npm audit || true'
+                    bat 'npm audit || exit 0'
                 }
                 
                 echo 'Auditing frontend dependencies...'
                 dir('frontend') {
-                    sh 'npm audit || true'
+                    bat 'npm audit || exit 0'
                 }
                 
                 echo 'Auditing admin dependencies...'
                 dir('admin') {
-                    sh 'npm audit || true'
+                    bat 'npm audit || exit 0'
                 }
             }
         }
@@ -63,13 +57,12 @@ pipeline {
                 echo '=== Stage: Code Quality Check ==='
                 echo 'Running linting tool (ESLint) for frontend...'
                 dir('frontend') {
-                    // Running with "|| true" to report style guidelines/issues without failing the pipeline
-                    sh 'npm run lint || true'
+                    bat 'npm run lint || exit 0'
                 }
                 
                 echo 'Running linting tool (ESLint) for admin...'
                 dir('admin') {
-                    sh 'npm run lint || true'
+                    bat 'npm run lint || exit 0'
                 }
             }
         }
@@ -79,13 +72,13 @@ pipeline {
                 echo '=== Stage: Containerization ==='
                 script {
                     echo "Building Docker Image: ${BACKEND_IMAGE}:${GIT_TAG}..."
-                    sh "docker build -t ${BACKEND_IMAGE}:${GIT_TAG} -f Dockerfile ."
+                    bat "docker build -t ${BACKEND_IMAGE}:${GIT_TAG} -f Dockerfile ."
                     
                     echo "Building Docker Image: ${FRONTEND_IMAGE}:${GIT_TAG}..."
-                    sh "docker build -t ${FRONTEND_IMAGE}:${GIT_TAG} -f frontend/Dockerfile ./frontend"
+                    bat "docker build -t ${FRONTEND_IMAGE}:${GIT_TAG} -f frontend/Dockerfile ./frontend"
                     
                     echo "Building Docker Image: ${ADMIN_IMAGE}:${GIT_TAG}..."
-                    sh "docker build -t ${ADMIN_IMAGE}:${GIT_TAG} -f admin/Dockerfile ./admin"
+                    bat "docker build -t ${ADMIN_IMAGE}:${GIT_TAG} -f admin/Dockerfile ./admin"
                 }
             }
         }
@@ -97,25 +90,25 @@ pipeline {
                     // Bind username and password from Jenkins Credentials Provider
                     withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASSWORD')]) {
                         // Securely log into Docker Registry
-                        sh 'echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin'
+                        bat 'echo %DOCKER_PASSWORD%| docker login -u %DOCKER_USER% --password-stdin'
                         
                         // Tag and Push backend
-                        sh "docker tag ${BACKEND_IMAGE}:${GIT_TAG} \$DOCKER_USER/${BACKEND_IMAGE}:${GIT_TAG}"
-                        sh "docker tag ${BACKEND_IMAGE}:${GIT_TAG} \$DOCKER_USER/${BACKEND_IMAGE}:latest"
-                        sh "docker push \$DOCKER_USER/${BACKEND_IMAGE}:${GIT_TAG}"
-                        sh "docker push \$DOCKER_USER/${BACKEND_IMAGE}:latest"
+                        bat "docker tag ${BACKEND_IMAGE}:${GIT_TAG} %DOCKER_USER%/${BACKEND_IMAGE}:${GIT_TAG}"
+                        bat "docker tag ${BACKEND_IMAGE}:${GIT_TAG} %DOCKER_USER%/${BACKEND_IMAGE}:latest"
+                        bat "docker push %DOCKER_USER%/${BACKEND_IMAGE}:${GIT_TAG}"
+                        bat "docker push %DOCKER_USER%/${BACKEND_IMAGE}:latest"
                         
                         // Tag and Push frontend
-                        sh "docker tag ${FRONTEND_IMAGE}:${GIT_TAG} \$DOCKER_USER/${FRONTEND_IMAGE}:${GIT_TAG}"
-                        sh "docker tag ${FRONTEND_IMAGE}:${GIT_TAG} \$DOCKER_USER/${FRONTEND_IMAGE}:latest"
-                        sh "docker push \$DOCKER_USER/${FRONTEND_IMAGE}:${GIT_TAG}"
-                        sh "docker push \$DOCKER_USER/${FRONTEND_IMAGE}:latest"
+                        bat "docker tag ${FRONTEND_IMAGE}:${GIT_TAG} %DOCKER_USER%/${FRONTEND_IMAGE}:${GIT_TAG}"
+                        bat "docker tag ${FRONTEND_IMAGE}:${GIT_TAG} %DOCKER_USER%/${FRONTEND_IMAGE}:latest"
+                        bat "docker push %DOCKER_USER%/${FRONTEND_IMAGE}:${GIT_TAG}"
+                        bat "docker push %DOCKER_USER%/${FRONTEND_IMAGE}:latest"
                         
                         // Tag and Push admin
-                        sh "docker tag ${ADMIN_IMAGE}:${GIT_TAG} \$DOCKER_USER/${ADMIN_IMAGE}:${GIT_TAG}"
-                        sh "docker tag ${ADMIN_IMAGE}:${GIT_TAG} \$DOCKER_USER/${ADMIN_IMAGE}:latest"
-                        sh "docker push \$DOCKER_USER/${ADMIN_IMAGE}:${GIT_TAG}"
-                        sh "docker push \$DOCKER_USER/${ADMIN_IMAGE}:latest"
+                        bat "docker tag ${ADMIN_IMAGE}:${GIT_TAG} %DOCKER_USER%/${ADMIN_IMAGE}:${GIT_TAG}"
+                        bat "docker tag ${ADMIN_IMAGE}:${GIT_TAG} %DOCKER_USER%/${ADMIN_IMAGE}:latest"
+                        bat "docker push %DOCKER_USER%/${ADMIN_IMAGE}:${GIT_TAG}"
+                        bat "docker push %DOCKER_USER%/${ADMIN_IMAGE}:latest"
                         
                         echo "All Docker images have been successfully pushed to Docker Hub."
                     }
@@ -137,15 +130,15 @@ pipeline {
                         try {
                             sshagent([deployKeyId]) {
                                 // 1. Copy Docker Compose configurations to the server
-                                sh "scp -o StrictHostKeyChecking=no docker-compose.yml ${deployUser}@${deployHost}:/home/${deployUser}/app/docker-compose.yml"
+                                bat "scp -o StrictHostKeyChecking=no docker-compose.yml ${deployUser}@${deployHost}:/home/${deployUser}/app/docker-compose.yml"
                                 
                                 // 2. SSH into target host, pull the latest images, and redeploy
-                                sh """ssh -o StrictHostKeyChecking=no ${deployUser}@${deployHost} '
+                                bat """ssh -o StrictHostKeyChecking=no ${deployUser}@${deployHost} "
                                     cd /home/${deployUser}/app
-                                    export GIT_TAG=${GIT_TAG}
+                                    set GIT_TAG=${GIT_TAG}
                                     docker-compose pull
                                     docker-compose up -d
-                                '"""
+                                " """
                                 echo "Deployment on remote host completed successfully!"
                             }
                         } catch (Exception e) {
@@ -156,7 +149,7 @@ pipeline {
                         echo "DEPLOY_HOST and DEPLOY_USER are not configured in Jenkins environment variables."
                         echo "Performing deployment validation locally using docker-compose config..."
                         // Validates the docker-compose syntax locally to check correctness
-                        sh 'docker-compose config || true'
+                        bat 'docker-compose config || exit 0'
                         echo "Deployment simulation finished successfully. Proceeding..."
                     }
                 }
