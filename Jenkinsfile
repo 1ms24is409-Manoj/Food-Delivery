@@ -13,6 +13,10 @@ pipeline {
         
         // Tag will default to the short git commit hash, or build number as fallback
         GIT_TAG = ''
+
+        // Ensure Git Bash tools are in PATH on Windows agents
+        PATH = "C:\\Program Files\\Git\\bin;C:\\Program Files\\Git\\usr\\bin;${env.PATH}"
+        Path = "C:\\Program Files\\Git\\bin;C:\\Program Files\\Git\\usr\\bin;${env.Path}"
     }
 
     stages {
