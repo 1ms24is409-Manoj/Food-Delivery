@@ -101,9 +101,9 @@ pipeline {
                     timeout(time: 5, unit: 'MINUTES') {
                         def qg = waitForQualityGate()
                         if (qg.status != 'OK') {
-                            error "❌ Pipeline aborted: SonarQube Quality Gate FAILED (status: ${qg.status}). Fix the code quality issues before building Docker images."
+                            error "Pipeline aborted: SonarQube Quality Gate FAILED (status: ${qg.status}). Fix the code quality issues before building Docker images."
                         }
-                        echo "✅ Quality Gate PASSED (status: ${qg.status}). Proceeding to Docker build."
+                        echo "Quality Gate PASSED (status: ${qg.status}). Proceeding to Docker build."
                     }
                 }
             }
@@ -170,10 +170,10 @@ pipeline {
             cleanWs()
         }
         success {
-            echo '✅ Jenkins Build succeeded!'
+            echo 'Jenkins Build succeeded!'
         }
         failure {
-            echo '❌ Jenkins Build failed. Please check the logs above.'
+            echo 'Jenkins Build failed. Please check the logs above.'
         }
     }
 }
