@@ -37,6 +37,26 @@ pipeline {
             }
         }
 
+        stage('Install Dependencies') {
+            steps {
+                echo '=== Stage: Install Dependencies ==='
+                echo 'Installing backend dependencies...'
+                dir('backend') {
+                    bat 'npm install'
+                }
+
+                echo 'Installing frontend dependencies...'
+                dir('frontend') {
+                    bat 'npm install'
+                }
+
+                echo 'Installing admin dependencies...'
+                dir('admin') {
+                    bat 'npm install'
+                }
+            }
+        }
+
         stage('Dependency Check') {
             steps {
                 echo '=== Stage: Dependency Check ==='
@@ -86,24 +106,9 @@ pipeline {
                             -Dsonar.sources=. ^
                             -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/build/**,**/*.test.js ^
                             -Dsonar.host.url=${SONAR_HOST_URL} ^
-                            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+                            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info ^
+                            -Dsonar.qualitygate.wait=true
                         """
-                    }
-                }
-            }
-        }
-
-        stage('Quality Gate') {
-            steps {
-                echo '=== Stage: Quality Gate ==='
-                script {
-                    // Wait for SonarQube to process and return the quality gate result
-                    timeout(time: 5, unit: 'MINUTES') {
-                        def qg = waitForQualityGate()
-                        if (qg.status != 'OK') {
-                            error "Pipeline aborted: SonarQube Quality Gate FAILED (status: ${qg.status}). Fix the code quality issues before building Docker images."
-                        }
-                        echo "Quality Gate PASSED (status: ${qg.status}). Proceeding to Docker build."
                     }
                 }
             }
