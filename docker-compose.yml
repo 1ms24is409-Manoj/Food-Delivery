@@ -1,16 +1,17 @@
-version: "3.8"
-
 services:
-
+  # 1. MongoDB Database
   mongo-db:
     image: mongo:latest
     container_name: mongo-db
     ports:
       - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
 
+  # 2. Backend API
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
     container_name: backend-app
     ports:
@@ -20,6 +21,7 @@ services:
     depends_on:
       - mongo-db
 
+  # 3. Frontend Application
   frontend:
     build:
       context: ./frontend
@@ -29,3 +31,21 @@ services:
       - "3000:3000"
     depends_on:
       - backend
+
+  # 4. SonarQube (Local Code Quality Inspection)
+  sonarqube:
+    image: sonarqube:latest
+    container_name: sonarqube
+    ports:
+      - "9000:9000"
+    environment:
+      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+
+# Persistent storage for your data
+volumes:
+  mongo_data:
+  sonarqube_data:
+  sonarqube_extensions:
